@@ -16,7 +16,7 @@ import (
 	"github.com/scionproto/scion/go/lib/spkt"
 )
 
-var Seed := rand.NewSource(time.Now().UnixNano())
+var Seed rand.Source
 
 func createScmpEchoReqPkt(local *snet.Addr, remote *snet.Addr) (uint64, *spkt.ScnPkt) {
 	id := rand.New(Seed).Uint64()
@@ -59,10 +59,6 @@ func validatePkt(pkt *spkt.ScnPkt, id uint64) (*scmp.Hdr, *scmp.InfoEcho, error)
 		return nil, nil,
 			common.NewBasicError("Not an Info Echo", nil, "type", common.TypeOf(info))
 	}
-	if info.Id != id {
-		return nil, nil,
-			common.NewBasicError("Wrong SCMP ID", nil, "expected", id, "actual", info.Id)
-	}
 	return scmpHdr, info, nil
 }
 
@@ -73,7 +69,7 @@ func check(e error) {
 }
 
 func printUsage() {
-	fmt.Println("\ndedicated_speedclient -s SourceSCIONAddress -d DestinationSCIONAddress")
+	fmt.Println("\nrandom_speedclient -s SourceSCIONAddress -d DestinationSCIONAddress")
 	fmt.Println("\tProvides speed estimates (RTT and latency) from source to desination")
 	fmt.Println("\tThe SCION address is specified as ISD-AS,[IP Address]:Port")
 	fmt.Println("\tIf source port unspecified, a random available one will be used.")
@@ -122,10 +118,15 @@ func main() {
 
 	receivePacketBuffer := make([]byte, 2500)
 
+	Seed = rand.NewSource(time.Now().UnixNano())
+
 	// Do 5 iterations so we can use average
-	var total float32 = 0
+	var total int64 = 0
 	iters := 0
-	for iters < 5 {
+	num_tries := 0
+	for iters < 5 && num_tries < 20 {
+		num_tries += 1
+
 		// Construct SCMP Packet
 		id, pkt := createScmpEchoReqPkt(local, remote)
 		b := make(common.RawBytes, common.MinMTU)
@@ -143,15 +144,24 @@ func main() {
 		recvpkt := &spkt.ScnPkt{}
 		err = hpkt.ParseScnPkt(recvpkt, b[:n])
 		check(err)
-		_, _, err = validatePkt(recvpkt, id)
+		_, info, err := validatePkt(recvpkt, id)
 		check(err)
 
-		total += float32(time_received.UnixNano() - time_sent.UnixNano())
+		if info.Id == id {
+			total += (time_received.UnixNano() - time_sent.UnixNano())
+			iters += 1
+		}
 	}
-	var difference float32 = total / float32(iters)
+
+	if iters != 5 {
+		check(fmt.Errorf("Error, exceeded maximum number of attempts"))
+	}
+
+	var difference float64 = float64(total) / float64(iters)
 
 	fmt.Printf("Source: %s\nDestination: %s\n", sourceAddress, destinationAddress);
 	fmt.Println("Time estimates:")
-	fmt.Printf("\tRTT - %dms\n", int(difference/1e6))
-	fmt.Printf("\tLatency - %dms\n", int(difference/2e6))
+	// Print in ms, so divide by 1e6 from nano
+	fmt.Printf("\tRTT - %.3fms\n", difference/1e6)
+	fmt.Printf("\tLatency - %.3fms\n", difference/2e6)
 }

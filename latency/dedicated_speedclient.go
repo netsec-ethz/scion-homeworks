@@ -96,14 +96,16 @@ func main() {
 			iters += 1
 		}
 	}
+
 	if iters != 5 {
-		check(fmt.Errorf("Error, exceeded number of attempts"))
+		check(fmt.Errorf("Error, exceeded maximum number of attempts"))
 	}
 
 	var difference float64 = float64(total) / float64(iters)
 
 	fmt.Printf("\nSource: %s\nDestination: %s\n", sourceAddress, destinationAddress);
 	fmt.Println("Time estimates:")
-	fmt.Printf("\tRTT - %.2fms\n", difference/1e6)
-	fmt.Printf("\tLatency - %.2fms\n", difference/2e6)
+	// Print in ms, so divide by 1e6 from nano
+	fmt.Printf("\tRTT - %.3fms\n", difference/1e6)
+	fmt.Printf("\tLatency - %.3fms\n", difference/2e6)
 }
