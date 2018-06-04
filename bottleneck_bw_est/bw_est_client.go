@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 
@@ -15,17 +16,17 @@ import (
 )
 
 const (
-	PACKET_SIZE int = 2500
+	PACKET_SIZE int = 4000
 	PACKET_NUM int = 10
 )
 
-type interval struct {
+type checkpoint struct {
 	sent, recvd int64
 }
 
 var (
 	// unique id: (Time sent, time received)
-	recvMap map[uint64]interval
+	recvMap map[uint64]checkpoint
 	recvLock sync.Mutex
 	udpConnection *snet.Conn
 )
@@ -44,10 +45,32 @@ func printUsage() {
 	fmt.Println("\tExample SCION address 1-1,[127.0.0.1]:42002\n")
 }
 
-// Uses the intervals in recvMap to calculate bottleneck BW
-func getAverageBottleneckBW() float64 {
-	// TODO
-	return 0
+/* Uses the checkpoints in recvMap to calculate bottleneck BW
+ * Returns bandwidth sent and received in Mbps. */
+func getAverageBottleneckBW() (float64, float64) {
+
+	// Make list of tuples sorted by sent times
+	var sorted []checkpoint
+	for _, v := range recvMap {
+		if v.recvd != 0 {
+			sorted = append(sorted, v)
+		}
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].sent < sorted[j].sent })
+
+	var sent_int, recvd_int int64
+	size := len(sorted)
+	// Take average of intervals between consecutive send and receive.
+	for i := 1; i < size; i+=1 {
+		sent_int += (sorted[i].sent - sorted[i-1].sent)
+		recvd_int += (sorted[i].recvd - sorted[i-1].recvd)
+	}
+
+	// Calculate BW = (#Bytes*8 / #nanoseconds) / 1e6
+	bw_sent := float64(PACKET_SIZE*8*1e3) / (float64(sent_int) / float64(size))
+	bw_recvd := float64(PACKET_SIZE*8*1e3) / (float64(recvd_int) / float64(size))
+
+	return bw_sent, bw_recvd
 }
 
 // Receives replies from packets and puts them in receivemap
@@ -141,7 +164,7 @@ func main() {
 		_ = binary.PutUvarint(sendPacketBuffer, id)
 
 		recvLock.Lock()
-		recvMap[id] = interval{time.Now().UnixNano(), 0}
+		recvMap[id] = checkpoint{time.Now().UnixNano(), 0}
 		_, err = udpConnection.Write(sendPacketBuffer)
 		recvLock.Unlock()
 		check(err)
@@ -149,9 +172,11 @@ func main() {
 	}
 
 	// Get and Display Results
-	bw := getAverageBottleneckBW()
+	bw_sent, bw_recvd := getAverageBottleneckBW()
 
 	fmt.Printf("\nSource: %s\nDestination: %s\n", sourceAddress, destinationAddress);
+	fmt.Println("Rate sent:")
+	fmt.Printf("\tBW - %.3fMbps\n", bw_sent)
 	fmt.Println("Bottleneck Bandwidth estimate:")
-	fmt.Printf("\tBW - %.3fMbps\n", bw)
+	fmt.Printf("\tBW - %.3fMbps\n", bw_recvd)
 }
