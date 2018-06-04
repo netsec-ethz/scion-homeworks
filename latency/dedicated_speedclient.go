@@ -13,6 +13,11 @@ import (
 	"github.com/scionproto/scion/go/lib/snet"
 )
 
+const (
+	NUM_ITERS = 20
+	MAX_NUM_TRIES = 40
+)
+
 func check(e error) {
 	if e != nil {
 		log.Fatal(e)
@@ -75,7 +80,7 @@ func main() {
 	var total int64 = 0
 	iters := 0
 	num_tries := 0
-	for iters < 5 && num_tries < 20 {
+	for iters < NUM_ITERS && num_tries < MAX_NUM_TRIES {
 		num_tries += 1
 
 		id := rand.New(seed).Uint64()
@@ -92,12 +97,14 @@ func main() {
 
 		ret_id, n := binary.Uvarint(receivePacketBuffer)
 		if ret_id == id {
-			total += (time_received.UnixNano() - time_sent.UnixNano())
+			diff := (time_received.UnixNano() - time_sent.UnixNano())
+			total += diff
 			iters += 1
+			fmt.Printf("%d: %.3fms %.3fms\n", iters, float64(diff)/1e6, float64(diff)/2e6)
 		}
 	}
 
-	if iters != 5 {
+	if iters != NUM_ITERS {
 		check(fmt.Errorf("Error, exceeded maximum number of attempts"))
 	}
 
