@@ -1,4 +1,4 @@
-// Dedicated client for measuring speed (RTT and Latency)
+// A client for measuring speed (RTT and Latency)
 
 package main
 
