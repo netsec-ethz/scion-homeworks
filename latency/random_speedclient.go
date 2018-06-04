@@ -16,6 +16,11 @@ import (
 	"github.com/scionproto/scion/go/lib/spkt"
 )
 
+const (
+	NUM_ITERS = 20
+	MAX_NUM_TRIES = 40
+)
+
 var Seed rand.Source
 
 func createScmpEchoReqPkt(local *snet.Addr, remote *snet.Addr) (uint64, *spkt.ScnPkt) {
@@ -124,7 +129,7 @@ func main() {
 	var total int64 = 0
 	iters := 0
 	num_tries := 0
-	for iters < 5 && num_tries < 20 {
+	for iters < NUM_ITERS && num_tries < MAX_NUM_TRIES {
 		num_tries += 1
 
 		// Construct SCMP Packet
@@ -148,8 +153,10 @@ func main() {
 		check(err)
 
 		if info.Id == id {
-			total += (time_received.UnixNano() - time_sent.UnixNano())
+			diff := (time_received.UnixNano() - time_sent.UnixNano())
+			total += diff
 			iters += 1
+			fmt.Printf("%d: %.3fms %.3fms\n", iters, float64(diff)/1e6, float64(diff)/2e6)
 		}
 	}
 
