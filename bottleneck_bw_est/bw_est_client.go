@@ -16,17 +16,17 @@ import (
 )
 
 const (
-	PACKET_SIZE int = 4000
+	PACKET_SIZE int = 37500
 	PACKET_NUM int = 10
 )
 
-type checkpoint struct {
+type Checkpoint struct {
 	sent, recvd int64
 }
 
 var (
 	// unique id: (Time sent, time received)
-	recvMap map[uint64]checkpoint
+	recvMap map[uint64]*Checkpoint
 	recvLock sync.Mutex
 	udpConnection *snet.Conn
 )
@@ -50,7 +50,7 @@ func printUsage() {
 func getAverageBottleneckBW() (float64, float64) {
 
 	// Make list of tuples sorted by sent times
-	var sorted []checkpoint
+	var sorted []*Checkpoint
 	for _, v := range recvMap {
 		if v.recvd != 0 {
 			sorted = append(sorted, v)
@@ -65,7 +65,8 @@ func getAverageBottleneckBW() (float64, float64) {
 		sent_int += (sorted[i].sent - sorted[i-1].sent)
 		recvd_int += (sorted[i].recvd - sorted[i-1].recvd)
 	}
-
+	fmt.Println(recvMap)
+	fmt.Printf("Sent_int: %d, Recvd_int: %d\n", sent_int, recvd_int)
 	// Calculate BW = (#Bytes*8 / #nanoseconds) / 1e6
 	bw_sent := float64(PACKET_SIZE*8*1e3) / (float64(sent_int) / float64(size))
 	bw_recvd := float64(PACKET_SIZE*8*1e3) / (float64(recvd_int) / float64(size))
@@ -88,6 +89,9 @@ func recvPackets(done chan bool) {
 		if val, ok := recvMap[ret_id]; ok {
 			time_recvd, _ := binary.Varint(receivePacketBuffer[n:])
 			val.recvd = time_recvd
+			fmt.Println(val)
+			// recvMap[ret_id].recvd = time_recvd
+			fmt.Println(recvMap[ret_id])
 			num += 1
 		}
 		recvLock.Unlock()
@@ -143,6 +147,7 @@ func main() {
 	sendPacketBuffer[PACKET_SIZE] = 0
 
 	seed := rand.NewSource(time.Now().UnixNano())
+	recvMap = make(map[uint64]*Checkpoint)
 
 	// Create Communication Channel to Receiver
 	done := make(chan bool)
@@ -164,11 +169,11 @@ func main() {
 		_ = binary.PutUvarint(sendPacketBuffer, id)
 
 		recvLock.Lock()
-		recvMap[id] = checkpoint{time.Now().UnixNano(), 0}
+		recvMap[id] = &Checkpoint{time.Now().UnixNano(), 0}
 		_, err = udpConnection.Write(sendPacketBuffer)
 		recvLock.Unlock()
 		check(err)
-		// time.Sleep(time.Millisecond)
+		time.Sleep(time.Millisecond)
 	}
 
 	// Get and Display Results

@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	RECEIVE_SIZE int = 3000
+	RECEIVE_SIZE int = 50000
 )
 
 func check(e error) {
