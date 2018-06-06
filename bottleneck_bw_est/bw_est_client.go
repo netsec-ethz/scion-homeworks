@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	PACKET_SIZE int = 37500
-	PACKET_NUM int = 10
+	PACKET_SIZE int = 400
+	PACKET_NUM int = 100
 )
 
 type Checkpoint struct {
@@ -29,6 +29,7 @@ var (
 	recvMap map[uint64]*Checkpoint
 	recvLock sync.Mutex
 	udpConnection *snet.Conn
+	multiplier int = 1
 )
 
 func check(e error) {
@@ -50,26 +51,26 @@ func printUsage() {
 func getAverageBottleneckBW() (float64, float64) {
 
 	// Make list of tuples sorted by sent times
-	var sorted []*Checkpoint
+	sorted := make([]*Checkpoint, PACKET_NUM)
+	i := 0
 	for _, v := range recvMap {
 		if v.recvd != 0 {
-			sorted = append(sorted, v)
+			sorted[i] = v
+			i += 1
 		}
 	}
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].sent < sorted[j].sent })
 
 	var sent_int, recvd_int int64
-	size := len(sorted)
 	// Take average of intervals between consecutive send and receive.
-	for i := 1; i < size; i+=1 {
+	for i := 1; i < PACKET_NUM; i+=1 {
 		sent_int += (sorted[i].sent - sorted[i-1].sent)
 		recvd_int += (sorted[i].recvd - sorted[i-1].recvd)
 	}
-	fmt.Println(recvMap)
 	fmt.Printf("Sent_int: %d, Recvd_int: %d\n", sent_int, recvd_int)
 	// Calculate BW = (#Bytes*8 / #nanoseconds) / 1e6
-	bw_sent := float64(PACKET_SIZE*8*1e3) / (float64(sent_int) / float64(size))
-	bw_recvd := float64(PACKET_SIZE*8*1e3) / (float64(recvd_int) / float64(size))
+	bw_sent := float64(PACKET_SIZE*8*1e3) / (float64(sent_int) / float64(PACKET_NUM))
+	bw_recvd := float64(PACKET_SIZE*8*1e3) / (float64(recvd_int) / float64(PACKET_NUM))
 
 	return bw_sent, bw_recvd
 }
@@ -80,23 +81,32 @@ func recvPackets(done chan bool) {
 	var err error
 
 	num := 0
+	done <- false
 	for num < PACKET_NUM {
+		udpConnection.SetReadDeadline(time.Now().Add(time.Second))
 		_, _, err = udpConnection.ReadFrom(receivePacketBuffer)
-		check(err)
+		if err != nil {
+			multiplier *= 2
+			if multiplier > 1024 {
+				check(err)
+			}
+			recvLock.Lock()
+			recvMap = make(map[uint64]*Checkpoint)
+			recvLock.Unlock()
+			done <- false
+			continue
+		}
 
 		ret_id, n := binary.Uvarint(receivePacketBuffer)
 		recvLock.Lock()
 		if val, ok := recvMap[ret_id]; ok {
 			time_recvd, _ := binary.Varint(receivePacketBuffer[n:])
 			val.recvd = time_recvd
-			fmt.Println(val)
-			// recvMap[ret_id].recvd = time_recvd
-			fmt.Println(recvMap[ret_id])
 			num += 1
 		}
 		recvLock.Unlock()
 	}
-
+	fmt.Printf("NUM_PACKETS: %d\n", num)
 	done <- true
 	return
 }
@@ -153,27 +163,25 @@ func main() {
 	done := make(chan bool)
 	go recvPackets(done)
 
-	// Start Send Loop
-	iters := 0
-	sendloop:
-	for iters < 10 {
-		select {
-		case _ = <-done:
-			break sendloop
-		default:
-			break;
+	for {
+		n := <-done
+		if n {
+			break
 		}
-		iters += 1
+		iters := 0
+		for iters < (PACKET_NUM*multiplier) {
+			iters += 1
 
-		id := rand.New(seed).Uint64()
-		_ = binary.PutUvarint(sendPacketBuffer, id)
+			id := rand.New(seed).Uint64()
+			_ = binary.PutUvarint(sendPacketBuffer, id)
 
-		recvLock.Lock()
-		recvMap[id] = &Checkpoint{time.Now().UnixNano(), 0}
-		_, err = udpConnection.Write(sendPacketBuffer)
-		recvLock.Unlock()
-		check(err)
-		time.Sleep(time.Millisecond)
+			recvLock.Lock()
+			recvMap[id] = &Checkpoint{time.Now().UnixNano(), 0}
+			_, err = udpConnection.Write(sendPacketBuffer)
+			recvLock.Unlock()
+			check(err)
+			time.Sleep(time.Microsecond)
+		}
 	}
 
 	// Get and Display Results
