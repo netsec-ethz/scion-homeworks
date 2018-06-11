@@ -15,9 +15,14 @@ import (
 )
 
 const (
-	PACKET_SIZE int = 4000
-	PACKET_NUM int = 10
+	DEFAULT_PACKET_SIZE int = 8000
+	DEFAULT_PACKET_NUM int = 10
 	NUM_TRIES int = 3
+)
+
+var (
+	PACKET_SIZE int
+	PACKET_NUM int
 )
 
 
@@ -28,11 +33,12 @@ func check(e error) {
 }
 
 func printUsage() {
-	fmt.Println("\nbw_est_client -s SourceSCIONAddress -d DestinationSCIONAddress")
+	fmt.Println("\nbw_est_client -s SourceSCIONAddress -d DestinationSCIONAddress [-p PacketSize] [-n PacketNum]")
 	fmt.Println("\tProvides bottleneck bandwidth estimation from source to dedicated destination using simplified packet pair algorithm")
 	fmt.Println("\tThe SCION address is specified as ISD-AS,[IP Address]:Port")
 	fmt.Println("\tIf source port unspecified, a random available one will be used")
 	fmt.Println("\tExample SCION address 1-1,[127.0.0.1]:42002\n")
+	fmt.Println("If packet size (in bytes) and packet num unspecified, defaults used.")
 }
 
 func main() {
@@ -52,6 +58,8 @@ func main() {
 	// Fetch arguments from command line
 	flag.StringVar(&sourceAddress, "s", "", "Source SCION Address")
 	flag.StringVar(&destinationAddress, "d", "", "Destination SCION Address")
+	flag.IntVar(&PACKET_SIZE, "p", DEFAULT_PACKET_SIZE, "Packet Size")
+	flag.IntVar(&PACKET_NUM, "n", DEFAULT_PACKET_NUM, "Packet Num")
 	flag.Parse()
 
 	// Create the SCION UDP socket
@@ -98,6 +106,7 @@ func main() {
 		udpConn.SetReadDeadline(time.Now().Add(2*time.Second))
 		_, err = udpConn.Read(sendBuff)
 		if err != nil {
+			fmt.Println(err)
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				i += 1
 				continue
@@ -130,7 +139,7 @@ func main() {
 		_, err = udpConn.Write(sendBuff)
 		check(err)
 		i += 1
-		time.Sleep(time.Microsecond)
+		time.Sleep(time.Millisecond)
 	}
 
 	/* Remove read deadline */
@@ -142,21 +151,20 @@ func main() {
 	check(err)
 	id, n := binary.Uvarint(sendBuff)
 	if (uid != id) {
-		check(fmt.Errorf("Error, did not receive the correct id back"))
+		check(fmt.Errorf("Error, did not receive the correct id back.\nSent: %d\nReceived: %d\n", uid, id))
 	}
 
 	recvd_int, _ := binary.Varint(sendBuff[n:])
 
 	/* Calculate send and received bw */
 	var sum int64 = 0
-	for _, i := range times {
-		sum += i
+	for i := 1; i < PACKET_NUM; i+=1 {
+		sum += (times[i] - times[i-1])
 	}
-	sent_int := sum / int64(PACKET_NUM)
+	sent_int := sum / int64(PACKET_NUM - 1)
 
 	/* Calculate BW (Mbps) = (#Bytes*8 / #nanoseconds) / 1e6 */
 	bw_sent := float64(PACKET_SIZE*8*1e3) / float64(sent_int)
-
 	bw_recvd := float64(PACKET_SIZE*8*1e3) / float64(recvd_int)
 
 	// Display Results

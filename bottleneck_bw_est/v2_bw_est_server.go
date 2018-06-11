@@ -67,17 +67,18 @@ func main() {
 	check(err)
 
 	receiveBuff := make([]byte, RECEIVE_SIZE + 1)
+	var n,m int
+	var num, count int64
 
 	for {
 		/* Receive [1, unique_id, #packets] */
-		m, client, err := udpConn.ReadFromSCION(receiveBuff)
-		num, n := binary.Varint(receiveBuff)
+		m, clientAddr, err = udpConn.ReadFromSCION(receiveBuff)
+		num, n = binary.Varint(receiveBuff)
 
 		/* Initialize connection */
 		if num == 1 {
-			clientAddr = client
-			clientId, m := binary.Uvarint(receiveBuff[n:])
-			num_packets, _ := binary.Varint(receiveBuff[n+m:])
+			clientId, m = binary.Uvarint(receiveBuff[n:])
+			num_packets, _ = binary.Varint(receiveBuff[n+m:])
 			times = make([]int64, num_packets)
 
 			/* Send ack as [1, same_id] */
@@ -89,12 +90,11 @@ func main() {
 		} else {
 			continue
 		}
-
-		timer := time.NewTimer(2 * time.Second).C
+		fmt.Println("Beginning bandwidth test with", clientAddr, "for", num_packets, "packets.")
+		timer := time.NewTimer(4 * time.Second).C
 		udpConn.SetReadDeadline(time.Now().Add(3*time.Second))
 
-		var count int64 = 0
-
+		count = 0
 		sendloop:
 		for {
 			select {
@@ -107,7 +107,7 @@ func main() {
 			}
 
 			/* Wait for new packet */
-			_, client, err = udpConn.ReadFromSCION(receiveBuff)
+			_, client, err := udpConn.ReadFromSCION(receiveBuff)
 			time_received := time.Now().UnixNano()
 			if err != nil {
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -119,7 +119,7 @@ func main() {
 
 			/* Check to make sure it comes from clientAddr */
 			if client.EqAddr(clientAddr) {
-				times[n] = time_received
+				times[count] = time_received
 				count += 1
 			}
 		}
@@ -128,13 +128,14 @@ func main() {
 
 		/* Calculate received interval */
 		var sum int64 = 0
-		for _, i := range times {
-			sum += i
+		for i := int64(1); i < count; i+=1 {
+			sum += (times[i] - times[i-1])
 		}
+
 
 		if count != 0 {
 			/* Wont be off by more than a few nanoseconds w/ integer division */
-			m = binary.PutVarint(receiveBuff[n:], sum / count)
+			m = binary.PutVarint(receiveBuff[n:], sum / (count-1))
 		} else {
 			m = binary.PutVarint(receiveBuff[n:], 0)
 		}
@@ -143,6 +144,7 @@ func main() {
 		/* Send [unique_id, interval(ns)] then can restart */
 		_, err = udpConn.WriteToSCION(receiveBuff[:n+m], clientAddr)
 		check(err)
+		fmt.Println("...finished")
 		var zero time.Time
 		udpConn.SetReadDeadline(zero)
 	}
