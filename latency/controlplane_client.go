@@ -141,6 +141,7 @@ func main() {
 		break
 	}
 
+	fmt.Println("Path:", pathEntry.Path.String())
 	remote.Path = spath.New(pathEntry.Path.FwdPath)
 	remote.Path.InitOffsets()
 	remote.NextHopHost = pathEntry.HostInfo.Host()
