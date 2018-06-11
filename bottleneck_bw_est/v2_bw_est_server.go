@@ -143,6 +143,8 @@ func main() {
 		/* Send [unique_id, interval(ns)] then can restart */
 		_, err = udpConn.WriteToSCION(receiveBuff[:n+m], clientAddr)
 		check(err)
+		var zero time.Time
+		udpConn.SetReadDeadline(zero)
 	}
 
 }
