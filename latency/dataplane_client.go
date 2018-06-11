@@ -25,7 +25,7 @@ func check(e error) {
 }
 
 func printUsage() {
-	fmt.Println("\ndedicated_speedclient -s SourceSCIONAddress -d DestinationSCIONAddress")
+	fmt.Println("\ndataplane_client -s SourceSCIONAddress -d DestinationSCIONAddress")
 	fmt.Println("\tProvides speed estimates (RTT and latency) from source to dedicated response desination")
 	fmt.Println("\tThe SCION address is specified as ISD-AS,[IP Address]:Port")
 	fmt.Println("\tIf source port unspecified, a random available one will be used")

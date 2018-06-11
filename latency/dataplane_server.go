@@ -17,7 +17,7 @@ func check(e error) {
 }
 
 func printUsage() {
-	fmt.Println("\ndedicated_speedserver -s ServerSCIONAddress")
+	fmt.Println("\ndataplane_server -s ServerSCIONAddress")
 	fmt.Println("\tListens for incoming connections and responds back to them right away")
 	fmt.Println("\tThe SCION address is specified as ISD-AS,[IP Address]:Port")
 	fmt.Println("\tIf server listening port unspecified, a random available one will be used")

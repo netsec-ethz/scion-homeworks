@@ -3,16 +3,23 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"math/rand"
 	"time"
 
+	"github.com/scionproto/scion/go/lib/addr"
 	"github.com/scionproto/scion/go/lib/common"
 	"github.com/scionproto/scion/go/lib/hpkt"
+	"github.com/scionproto/scion/go/lib/overlay"
+	"github.com/scionproto/scion/go/lib/pathmgr"
+	"github.com/scionproto/scion/go/lib/sciond"
 	"github.com/scionproto/scion/go/lib/scmp"
 	"github.com/scionproto/scion/go/lib/snet"
+	"github.com/scionproto/scion/go/lib/sock/reliable"
+	"github.com/scionproto/scion/go/lib/spath"
 	"github.com/scionproto/scion/go/lib/spkt"
 )
 
@@ -39,7 +46,6 @@ func createScmpEchoReqPkt(local *snet.Addr, remote *snet.Addr) (uint64, *spkt.Sc
 		DstHost: remote.Host,
 		SrcHost: local.Host,
 		Path:    remote.Path,
-		HBHExt:  []common.Extension{},
 		L4:      scmpHdr,
 		Pld:     pld,
 	}
@@ -90,7 +96,7 @@ func main() {
 		local  *snet.Addr
 		remote *snet.Addr
 
-		scmpConnection *snet.Conn
+		scmpConnection *reliable.Conn
 	)
 
 	// Fetch arguments from command line
@@ -118,10 +124,31 @@ func main() {
 	dispatcherAddr := "/run/shm/dispatcher/default.sock"
 	snet.Init(local.IA, sciondAddr, dispatcherAddr)
 
-	scmpConnection, err = snet.DialSCION("udp4", local, remote)
+	localAppAddr := &reliable.AppAddr{Addr: local.Host, Port: local.L4Port}
+	scmpConnection, _, err = reliable.Register(dispatcherAddr, local.IA, localAppAddr, nil, addr.SvcNone)
 	check(err)
 
-	receivePacketBuffer := make([]byte, 2500)
+	// Get Path to Remote
+	var pathEntry *sciond.PathReplyEntry
+	var options pathmgr.AppPathSet
+	options = snet.DefNetwork.PathResolver().Query(local.IA, remote.IA)
+	if len(options) == 0 {
+		check(errors.New("Cannot find a path from source to destination"))
+	}
+
+	for _, entry := range options {
+		pathEntry = entry.Entry /* Choose the first random one. */
+		break
+	}
+
+	remote.Path = spath.New(pathEntry.Path.FwdPath)
+	remote.Path.InitOffsets()
+	remote.NextHopHost = pathEntry.HostInfo.Host()
+	remote.NextHopPort = pathEntry.HostInfo.Port
+	remoteAppAddr := &reliable.AppAddr{Addr: remote.NextHopHost, Port: remote.NextHopPort}
+	if remote.NextHopHost == nil {
+		remoteAppAddr = &reliable.AppAddr{Addr: remote.Host, Port: overlay.EndhostPort}
+	}
 
 	Seed = rand.NewSource(time.Now().UnixNano())
 
@@ -129,25 +156,25 @@ func main() {
 	var total int64 = 0
 	iters := 0
 	num_tries := 0
+	buff := make(common.RawBytes, pathEntry.Path.Mtu)
 	for iters < NUM_ITERS && num_tries < MAX_NUM_TRIES {
 		num_tries += 1
 
 		// Construct SCMP Packet
 		id, pkt := createScmpEchoReqPkt(local, remote)
-		b := make(common.RawBytes, common.MinMTU)
-		pktLen, err := hpkt.WriteScnPkt(pkt, b)
+		pktLen, err := hpkt.WriteScnPkt(pkt, buff)
 		check(err)
 
 
 		time_sent := time.Now()
-		_, err = scmpConnection.Write(b[:pktLen])
+		_, err = scmpConnection.WriteTo(buff[:pktLen], remoteAppAddr)
 		check(err)
 
-		n, _, err := scmpConnection.ReadFrom(receivePacketBuffer)
+		n, err := scmpConnection.Read(buff)
 		time_received := time.Now()
 
 		recvpkt := &spkt.ScnPkt{}
-		err = hpkt.ParseScnPkt(recvpkt, b[:n])
+		err = hpkt.ParseScnPkt(recvpkt, buff[:n])
 		check(err)
 		_, info, err := validatePkt(recvpkt, id)
 		check(err)
@@ -160,15 +187,16 @@ func main() {
 		}
 	}
 
-	if iters != 5 {
+	if iters != NUM_ITERS {
 		check(fmt.Errorf("Error, exceeded maximum number of attempts"))
 	}
 
 	var difference float64 = float64(total) / float64(iters)
 
-	fmt.Printf("Source: %s\nDestination: %s\n", sourceAddress, destinationAddress);
+	fmt.Printf("\nSource: %s\nDestination: %s\n", sourceAddress, destinationAddress);
 	fmt.Println("Time estimates:")
 	// Print in ms, so divide by 1e6 from nano
 	fmt.Printf("\tRTT - %.3fms\n", difference/1e6)
 	fmt.Printf("\tLatency - %.3fms\n", difference/2e6)
 }
+
