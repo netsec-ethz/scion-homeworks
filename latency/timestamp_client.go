@@ -100,7 +100,7 @@ func main() {
 			diff := (time_received - time_sent.UnixNano())
 			total += diff
 			iters += 1
-			fmt.Printf("%d: %.3fms %.3fms\n", iters, float64(diff)/1e6, float64(diff)/2e6)
+			// fmt.Printf("%d: %.3fms %.3fms\n", iters, float64(diff)/1e6, float64(diff)/2e6)
 		}
 	}
 
