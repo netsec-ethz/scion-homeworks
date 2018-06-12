@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -28,7 +29,9 @@ var (
 	// unique id: (Time sent, time received)
 	recvMap map[uint64]*Checkpoint
 	recvLock sync.Mutex
+	wg sync.WaitGroup
 	udpConnection *snet.Conn
+	started bool
 	multiplier int = 1
 )
 
@@ -75,10 +78,50 @@ func getAverageBottleneckBW() (float64, float64) {
 	return bw_sent, bw_recvd
 }
 
-// Receives replies from packets and puts them in receivemap
-func recvPackets(done chan bool) {
-	receivePacketBuffer := make([]byte, PACKET_SIZE + 1)
+func sendPackets(done <-chan bool) {
+	defer wg.Done()
+
 	var err error
+	sendPacketBuffer := make([]byte, PACKET_SIZE + 1)
+	for i := 0; i < PACKET_SIZE; i+=1 {
+		sendPacketBuffer[i] = 'a'
+	}
+	sendPacketBuffer[PACKET_SIZE] = 0
+
+	seed := rand.NewSource(time.Now().UnixNano())
+	started = true
+	for {
+		n := <-done
+		if n {
+			break
+		}
+		iters := 0
+		for iters < (PACKET_NUM*multiplier) {
+			iters += 1
+
+			id := rand.New(seed).Uint64()
+			_ = binary.PutUvarint(sendPacketBuffer, id)
+
+			recvLock.Lock()
+			recvMap[id] = &Checkpoint{time.Now().UnixNano(), 0}
+			_, err = udpConnection.Write(sendPacketBuffer)
+			recvLock.Unlock()
+			check(err)
+			time.Sleep(time.Microsecond)
+		}
+	}
+}
+
+// Receives replies from packets and puts them in receivemap
+func recvPackets(done chan<- bool) {
+	defer wg.Done()
+
+	var err error
+	receivePacketBuffer := make([]byte, PACKET_SIZE + 1)
+
+	for !started {
+		runtime.Gosched()
+	}
 
 	num := 0
 	done <- false
@@ -150,39 +193,16 @@ func main() {
 	udpConnection, err = snet.DialSCION("udp4", local, remote)
 	check(err)
 
-	sendPacketBuffer := make([]byte, PACKET_SIZE + 1)
-	for i := 0; i < PACKET_SIZE; i+=1 {
-		sendPacketBuffer[i] = 'a'
-	}
-	sendPacketBuffer[PACKET_SIZE] = 0
-
-	seed := rand.NewSource(time.Now().UnixNano())
 	recvMap = make(map[uint64]*Checkpoint)
 
 	// Create Communication Channel to Receiver
+	wg.Add(2)
+
 	done := make(chan bool)
+	go sendPackets(done)
 	go recvPackets(done)
 
-	for {
-		n := <-done
-		if n {
-			break
-		}
-		iters := 0
-		for iters < (PACKET_NUM*multiplier) {
-			iters += 1
-
-			id := rand.New(seed).Uint64()
-			_ = binary.PutUvarint(sendPacketBuffer, id)
-
-			recvLock.Lock()
-			recvMap[id] = &Checkpoint{time.Now().UnixNano(), 0}
-			_, err = udpConnection.Write(sendPacketBuffer)
-			recvLock.Unlock()
-			check(err)
-			time.Sleep(time.Microsecond)
-		}
-	}
+	wg.Wait()
 
 	// Get and Display Results
 	bw_sent, bw_recvd := getAverageBottleneckBW()
