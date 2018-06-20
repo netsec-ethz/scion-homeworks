@@ -3,7 +3,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -133,7 +132,7 @@ func main() {
 	var options pathmgr.AppPathSet
 	options = snet.DefNetwork.PathResolver().Query(local.IA, remote.IA)
 	if len(options) == 0 {
-		check(errors.New("Cannot find a path from source to destination"))
+		check(fmt.Errorf("Cannot find a path from source to destination"))
 	}
 
 	for _, entry := range options {
