@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"time"
 
 	"github.com/scionproto/scion/go/lib/snet"
@@ -69,6 +68,7 @@ func main() {
 	receiveBuff := make([]byte, RECEIVE_SIZE + 1)
 	var n,m int
 	var num, count int64
+	var zero time.Time
 
 	for {
 		/* Receive [1, unique_id, #packets] */
@@ -92,7 +92,7 @@ func main() {
 		}
 		fmt.Println("Beginning bandwidth test with", clientAddr, "for", num_packets, "packets.")
 		timer := time.NewTimer(4 * time.Second).C
-		udpConn.SetReadDeadline(time.Now().Add(3*time.Second))
+		udpConn.SetReadDeadline(time.Now().Add(5*time.Second))
 
 		count = 0
 		sendloop:
@@ -110,11 +110,7 @@ func main() {
 			_, client, err := udpConn.ReadFromSCION(receiveBuff)
 			time_received := time.Now().UnixNano()
 			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					break;
-				} else {
-					check(err)
-				}
+				break sendloop;
 			}
 
 			/* Check to make sure it comes from clientAddr */
@@ -133,7 +129,7 @@ func main() {
 		}
 
 
-		if count != 0 {
+		if count > 1 {
 			/* Wont be off by more than a few nanoseconds w/ integer division */
 			m = binary.PutVarint(receiveBuff[n:], sum / (count-1))
 		} else {
@@ -145,7 +141,6 @@ func main() {
 		_, err = udpConn.WriteToSCION(receiveBuff[:n+m], clientAddr)
 		check(err)
 		fmt.Println("...finished")
-		var zero time.Time
 		udpConn.SetReadDeadline(zero)
 	}
 
