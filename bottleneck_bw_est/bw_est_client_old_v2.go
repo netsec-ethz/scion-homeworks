@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"time"
 
-	"github.com/scionproto/scion/go/lib/pathmgr"
-	"github.com/scionproto/scion/go/lib/sciond"
 	"github.com/scionproto/scion/go/lib/snet"
-	"github.com/scionproto/scion/go/lib/spath"
 )
 
 const (
@@ -84,27 +82,6 @@ func main() {
 	dispatcherAddr := "/run/shm/dispatcher/default.sock"
 	snet.Init(local.IA, sciondAddr, dispatcherAddr)
 
-	// Get Path to Remote
-	var pathEntry *sciond.PathReplyEntry
-	var options pathmgr.AppPathSet
-	options = snet.DefNetwork.PathResolver().Query(local.IA, remote.IA)
-	if len(options) == 0 {
-		check(fmt.Errorf("Cannot find a path from source to destination"))
-	}
-
-	var biggest string
-	for k, entry := range options {
-		if k.String() > biggest {
-			pathEntry = entry.Entry /* Choose the first random one. */
-		}
-	}
-
-	fmt.Println("\nPath:", pathEntry.Path.String())
-	remote.Path = spath.New(pathEntry.Path.FwdPath)
-	remote.Path.InitOffsets()
-	remote.NextHopHost = pathEntry.HostInfo.Host()
-	remote.NextHopPort = pathEntry.HostInfo.Port
-
 	udpConn, err = snet.DialSCION("udp4", local, remote)
 	check(err)
 
@@ -113,8 +90,6 @@ func main() {
 
 	/* Send initialization with timeout NUM_TRIES times */
 	seed := rand.NewSource(time.Now().UnixNano())
-	/* No read deadline */
-	var zero time.Time
 	i := 0
 	for i < NUM_TRIES {
 		n := binary.PutVarint(sendBuff, 1)
@@ -131,11 +106,14 @@ func main() {
 		udpConn.SetReadDeadline(time.Now().Add(2*time.Second))
 		_, err = udpConn.Read(sendBuff)
 		if err != nil {
-			i += 1
-			continue
+			fmt.Println(err)
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				i += 1
+				continue
+			} else {
+				check(err)
+			}
 		}
-
-		udpConn.SetReadDeadline(zero)
 
 		num, n := binary.Varint(sendBuff)
 		id, _ := binary.Uvarint(sendBuff[n:])
@@ -164,6 +142,9 @@ func main() {
 		time.Sleep(time.Millisecond)
 	}
 
+	/* Remove read deadline */
+	var zero time.Time
+	udpConn.SetReadDeadline(zero)
 
 	/* Read [unique_id, interval(ns)] */
 	_, err = udpConn.Read(sendBuff)
@@ -184,13 +165,7 @@ func main() {
 
 	/* Calculate BW (Mbps) = (#Bytes*8 / #nanoseconds) / 1e6 */
 	bw_sent := float64(PACKET_SIZE*8*1e3) / float64(sent_int)
-	var bw_recvd float64
-	if recvd_int != 0 {
-		bw_recvd = float64(PACKET_SIZE*8*1e3) / float64(recvd_int)
-	} else {
-		fmt.Println("\nNot enough packets successfully received.")
-		bw_recvd = 0
-	}
+	bw_recvd := float64(PACKET_SIZE*8*1e3) / float64(recvd_int)
 
 	// Display Results
 	fmt.Printf("\nSource: %s\nDestination: %s\n", sourceAddress, destinationAddress);

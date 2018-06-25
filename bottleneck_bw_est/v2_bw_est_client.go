@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net"
 	"time"
 
+	"github.com/scionproto/scion/go/lib/pathmgr"
+	"github.com/scionproto/scion/go/lib/sciond"
 	"github.com/scionproto/scion/go/lib/snet"
+	"github.com/scionproto/scion/go/lib/spath"
 )
 
 const (
@@ -55,14 +57,14 @@ func main() {
 		times []int64
 	)
 
-	// Fetch arguments from command line
+	/* Fetch arguments from command line */
 	flag.StringVar(&sourceAddress, "s", "", "Source SCION Address")
 	flag.StringVar(&destinationAddress, "d", "", "Destination SCION Address")
 	flag.IntVar(&PACKET_SIZE, "p", DEFAULT_PACKET_SIZE, "Packet Size")
 	flag.IntVar(&PACKET_NUM, "n", DEFAULT_PACKET_NUM, "Packet Num")
 	flag.Parse()
 
-	// Create the SCION UDP socket
+	/* Create the SCION UDP socket */
 	if len(sourceAddress) > 0 {
 		local, err = snet.AddrFromString(sourceAddress)
 		check(err)
@@ -82,14 +84,38 @@ func main() {
 	dispatcherAddr := "/run/shm/dispatcher/default.sock"
 	snet.Init(local.IA, sciondAddr, dispatcherAddr)
 
-	udpConn, err = snet.DialSCION("udp4", local, remote)
+	/* Register local application */
+	udpConn, err = snet.ListenSCION("udp4", local)
 	check(err)
+
+	/* Get Path to Remote */
+	var pathEntry *sciond.PathReplyEntry
+	var options pathmgr.AppPathSet
+	options = snet.DefNetwork.PathResolver().Query(local.IA, remote.IA)
+	if len(options) == 0 {
+		check(fmt.Errorf("Cannot find a path from source to destination"))
+	}
+
+	var biggest string
+	for k, entry := range options {
+		if k.String() > biggest {
+			pathEntry = entry.Entry /* Choose the first random one. */
+		}
+	}
+
+	fmt.Println("\nPath:", pathEntry.Path.String())
+	remote.Path = spath.New(pathEntry.Path.FwdPath)
+	remote.Path.InitOffsets()
+	remote.NextHopHost = pathEntry.HostInfo.Host()
+	remote.NextHopPort = pathEntry.HostInfo.Port
 
 	times = make([]int64, PACKET_NUM)
 	sendBuff := make([]byte, PACKET_SIZE + 1)
 
 	/* Send initialization with timeout NUM_TRIES times */
 	seed := rand.NewSource(time.Now().UnixNano())
+	/* No read deadline */
+	var zero time.Time
 	i := 0
 	for i < NUM_TRIES {
 		n := binary.PutVarint(sendBuff, 1)
@@ -99,21 +125,18 @@ func main() {
 		sendBuff[n+m+k] = 0
 
 		/* Send [1, unique_id, #packets] */
-		_, err = udpConn.Write(sendBuff[:n+m+k])
+		_, err = udpConn.WriteToSCION(sendBuff[:n+m+k], remote)
 		check(err)
 
 		/* Read [1, same_id] */
 		udpConn.SetReadDeadline(time.Now().Add(2*time.Second))
 		_, err = udpConn.Read(sendBuff)
 		if err != nil {
-			fmt.Println(err)
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				i += 1
-				continue
-			} else {
-				check(err)
-			}
+			i += 1
+			continue
 		}
+
+		udpConn.SetReadDeadline(zero)
 
 		num, n := binary.Varint(sendBuff)
 		id, _ := binary.Uvarint(sendBuff[n:])
@@ -136,15 +159,12 @@ func main() {
 	i = 0
 	for i < PACKET_NUM {
 		times[i] = time.Now().UnixNano()
-		_, err = udpConn.Write(sendBuff)
+		_, err = udpConn.WriteToSCION(sendBuff, remote)
 		check(err)
 		i += 1
 		time.Sleep(time.Millisecond)
 	}
 
-	/* Remove read deadline */
-	var zero time.Time
-	udpConn.SetReadDeadline(zero)
 
 	/* Read [unique_id, interval(ns)] */
 	_, err = udpConn.Read(sendBuff)
@@ -165,9 +185,15 @@ func main() {
 
 	/* Calculate BW (Mbps) = (#Bytes*8 / #nanoseconds) / 1e6 */
 	bw_sent := float64(PACKET_SIZE*8*1e3) / float64(sent_int)
-	bw_recvd := float64(PACKET_SIZE*8*1e3) / float64(recvd_int)
+	var bw_recvd float64
+	if recvd_int != 0 {
+		bw_recvd = float64(PACKET_SIZE*8*1e3) / float64(recvd_int)
+	} else {
+		fmt.Println("\nNot enough packets successfully received.")
+		bw_recvd = 0
+	}
 
-	// Display Results
+	/* Display Results */
 	fmt.Printf("\nSource: %s\nDestination: %s\n", sourceAddress, destinationAddress);
 	fmt.Println("Rate sent:")
 	fmt.Printf("\tBW - %.3fMbps\n", bw_sent)
