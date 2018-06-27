@@ -108,14 +108,14 @@ func main() {
 
 			/* Wait for new packet */
 			_, client, err := udpConn.ReadFromSCION(receiveBuff)
-			time_received := time.Now().UnixNano()
+			time_received := time.Now()
 			if err != nil {
 				break sendloop;
 			}
 
 			/* Check to make sure it comes from clientAddr */
 			if client.EqAddr(clientAddr) {
-				times[count] = time_received
+				times[count] = time_received.UnixNano()
 				count += 1
 			}
 		}
@@ -136,6 +136,7 @@ func main() {
 			m = binary.PutVarint(receiveBuff[n:], 0)
 		}
 		receiveBuff[n+m] = 0
+		fmt.Printf("Received %d packets", count)
 
 		/* Send [unique_id, interval(ns)] then can restart */
 		_, err = udpConn.WriteToSCION(receiveBuff[:n+m], clientAddr)
