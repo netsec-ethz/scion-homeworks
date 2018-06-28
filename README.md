@@ -6,3 +6,6 @@ General information about the SCION architecture can be found on the main websit
 
 ## [Latency](latency/)
 Walkthrough of the creation of a RTT and Latency estimator written in go and using the SCION internet architecture. Teaches concepts of path control, SCION Control Message Protocal (SCMP), and engenders thoughtful considerations and analysis of network design.
+
+## [Bottleneck Bandwidth Estimator](bottleneck_bw_est/)
+Walkthrough of the creation of server and client applications to estimate the bottleneck bandwidth along a path using the Packet Pair technique.
