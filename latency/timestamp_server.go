@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/scionproto/scion/go/lib/snet"
+	"github.com/scionproto/scion/go/lib/sciond"
 )
 
 func check(e error) {
@@ -49,9 +50,8 @@ func main() {
 		check(fmt.Errorf("Error, server address needs to be specified with -s"))
 	}
 
-	sciondAddr := fmt.Sprintf("/run/shm/sciond/sd%d-%d.sock", server.IA.I, server.IA.A)
 	dispatcherAddr := "/run/shm/dispatcher/default.sock"
-	snet.Init(server.IA, sciondAddr, dispatcherAddr)
+	snet.Init(server.IA, sciond.GetDefaultSCIONDPath(nil), dispatcherAddr)
 
 	udpConnection, err = snet.ListenSCION("udp4", server)
 	check(err)

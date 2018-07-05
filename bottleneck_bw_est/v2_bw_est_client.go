@@ -10,10 +10,10 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/scionproto/scion/go/lib/pathmgr"
 	"github.com/scionproto/scion/go/lib/sciond"
 	"github.com/scionproto/scion/go/lib/snet"
 	"github.com/scionproto/scion/go/lib/spath"
+	"github.com/scionproto/scion/go/lib/spath/spathmeta"
 )
 
 const (
@@ -39,8 +39,8 @@ func printUsage() {
 	fmt.Println("\tProvides bottleneck bandwidth estimation from source to dedicated destination using simplified packet pair algorithm")
 	fmt.Println("\tThe SCION address is specified as ISD-AS,[IP Address]:Port")
 	fmt.Println("\tIf source port unspecified, a random available one will be used")
-	fmt.Println("\tExample SCION address 1-1,[127.0.0.1]:42002\n")
-	fmt.Println("If packet size (in bytes) and packet num unspecified, defaults used.")
+	fmt.Println("\tExample SCION address 1-1,[127.0.0.1]:42002")
+	fmt.Println("\tIf packet size (in bytes) and packet num are unspecified, defaults are used.\n")
 }
 
 func main() {
@@ -80,9 +80,8 @@ func main() {
 		check(fmt.Errorf("Error, destination address needs to be specified with -d"))
 	}
 
-	sciondAddr := fmt.Sprintf("/run/shm/sciond/sd%d-%d.sock", local.IA.I, local.IA.A)
 	dispatcherAddr := "/run/shm/dispatcher/default.sock"
-	snet.Init(local.IA, sciondAddr, dispatcherAddr)
+	snet.Init(local.IA, sciond.GetDefaultSCIONDPath(nil), dispatcherAddr)
 
 	/* Register local application */
 	udpConn, err = snet.ListenSCION("udp4", local)
@@ -90,7 +89,7 @@ func main() {
 
 	/* Get Path to Remote */
 	var pathEntry *sciond.PathReplyEntry
-	var options pathmgr.AppPathSet
+	var options spathmeta.AppPathSet
 	options = snet.DefNetwork.PathResolver().Query(local.IA, remote.IA)
 	if len(options) == 0 {
 		check(fmt.Errorf("Cannot find a path from source to destination"))

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/scionproto/scion/go/lib/snet"
+	"github.com/scionproto/scion/go/lib/sciond"
 )
 
 const (
@@ -65,9 +66,8 @@ func main() {
 		check(fmt.Errorf("Error, destination address needs to be specified with -d"))
 	}
 
-	sciondAddr := fmt.Sprintf("/run/shm/sciond/sd%d-%d.sock", local.IA.I, local.IA.A)
 	dispatcherAddr := "/run/shm/dispatcher/default.sock"
-	snet.Init(local.IA, sciondAddr, dispatcherAddr)
+	snet.Init(local.IA, sciond.GetDefaultSCIONDPath(nil), dispatcherAddr)
 
 	udpConnection, err = snet.DialSCION("udp4", local, remote)
 	check(err)

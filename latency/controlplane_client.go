@@ -13,12 +13,12 @@ import (
 	"github.com/scionproto/scion/go/lib/common"
 	"github.com/scionproto/scion/go/lib/hpkt"
 	"github.com/scionproto/scion/go/lib/overlay"
-	"github.com/scionproto/scion/go/lib/pathmgr"
 	"github.com/scionproto/scion/go/lib/sciond"
 	"github.com/scionproto/scion/go/lib/scmp"
 	"github.com/scionproto/scion/go/lib/snet"
 	"github.com/scionproto/scion/go/lib/sock/reliable"
 	"github.com/scionproto/scion/go/lib/spath"
+	"github.com/scionproto/scion/go/lib/spath/spathmeta"
 	"github.com/scionproto/scion/go/lib/spkt"
 )
 
@@ -119,9 +119,8 @@ func main() {
 		check(fmt.Errorf("Error, destination address needs to be specified with -d"))
 	}
 
-	sciondAddr := fmt.Sprintf("/run/shm/sciond/sd%d-%d.sock", local.IA.I, local.IA.A)
 	dispatcherAddr := "/run/shm/dispatcher/default.sock"
-	snet.Init(local.IA, sciondAddr, dispatcherAddr)
+	snet.Init(local.IA, sciond.GetDefaultSCIONDPath(nil), dispatcherAddr)
 
 	localAppAddr := &reliable.AppAddr{Addr: local.Host, Port: local.L4Port}
 	scmpConnection, _, err = reliable.Register(dispatcherAddr, local.IA, localAppAddr, nil, addr.SvcNone)
@@ -129,7 +128,7 @@ func main() {
 
 	// Get Path to Remote
 	var pathEntry *sciond.PathReplyEntry
-	var options pathmgr.AppPathSet
+	var options spathmeta.AppPathSet
 	options = snet.DefNetwork.PathResolver().Query(local.IA, remote.IA)
 	if len(options) == 0 {
 		check(fmt.Errorf("Cannot find a path from source to destination"))
