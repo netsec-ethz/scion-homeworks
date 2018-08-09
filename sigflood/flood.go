@@ -16,8 +16,6 @@ import (
 )
 
 const (
-	REAL_SIG = "This is my temporary real signature"
-	FAKE_SIG = "This is my temporary fake signature"
 	REAL_USER_THROUGHPUT = 5
 	DEFAULT_PACKET_GROUP_SIZE = 10
 )
@@ -61,6 +59,13 @@ func readSigInfo(filename string) {
   if err != nil {
     check(fmt.Errorf("Cannot get signature to use"))
   }
+	FakeSignature := make([]byte, len(RealSignature))
+	copy(FakeSignature, RealSignature)
+	FakeSignature[0] = byte('A')
+	FakeSignature[10] = byte('A')
+
+	fmt.Printf("Real: %x\n", RealSignature)
+	fmt.Printf("Fake: %x\n", FakeSignature)
 
   /* Get N for RSA and create big.Int from string. */
   /* Don't need values for RSA PublicKey. */
@@ -72,15 +77,15 @@ func startSigStream(realUser bool, Wg *sync.WaitGroup) {
 	var (
 		rate = REAL_USER_THROUGHPUT
 		iters = PacketGroupSize
-		msg string
+		msg []byte
 		err    error
 		udpConnection *snet.Conn
 	)
 
 	if realUser {
-		msg = REAL_SIG
+		msg = RealSignature
 	} else {
-		msg = FAKE_SIG
+		msg = FakeSignature
 		rate *= Scale
 		iters *= Scale
 	}
@@ -90,14 +95,11 @@ func startSigStream(realUser bool, Wg *sync.WaitGroup) {
 
 	num := make([]byte, 16)
 	_ = binary.PutVarint(num, 1)
-	sendPacketBuffer := append(num, []byte(msg)...)
+	sendPacketBuffer := append(num, msg...)
 	nap := time.Second / time.Duration(rate)
 	i := 0
 	for i < iters {
 		_ = binary.PutVarint(sendPacketBuffer, time.Now().UnixNano())
-		if i == 2 && realUser {
-			time.Sleep(time.Second * 11)
-		}
 		_, err = udpConnection.Write(sendPacketBuffer)
 		check(err)
 

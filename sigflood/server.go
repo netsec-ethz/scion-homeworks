@@ -1,8 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"bufio"
+	"crypto"
 	"crypto/rsa"
 	"flag"
 	"encoding/binary"
@@ -28,11 +28,6 @@ func check(e error) {
 		log.Fatal(e)
 	}
 }
-
-const (
-	/* Replace with fixed public key to use for verification in future. */
-	CORRECT_SIG = "This is my temporary real signature"
-)
 
 func printUsage() {
 	fmt.Println("\nserver -s ServerSCIONAddress")
@@ -80,15 +75,12 @@ func readSigInfo(filename string) {
 }
 
 func verifySig(sig []byte) bool {
-	/* Do real signature verification stuff in future. */
-	time.Sleep(200*time.Microsecond)
-	msg_bytes := []byte(CORRECT_SIG)
-	if bytes.Equal(sig, msg_bytes) {
-		// fmt.Println("Real")
-		return true
-	} else {
+	if err := rsa.VerifyPKCS1v15(&PubKey, crypto.SHA256, Hash, sig); err != nil {
 		// fmt.Println("Fake")
 		return false
+	} else {
+		// fmt.Println("Real")
+		return true
 	}
 }
 
