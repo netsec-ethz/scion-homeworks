@@ -107,8 +107,10 @@ func main() {
 			}
 
 			/* Wait for new packet */
+			start := time.Now()
 			_, client, err := udpConn.ReadFromSCION(receiveBuff)
 			time_received := time.Now()
+			fmt.Printf("Waited %d ms\n", (time_received.UnixNano() - start.UnixNano())/1e6)
 			if err != nil {
 				break sendloop;
 			}
