@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -16,6 +17,9 @@ import (
 )
 
 const (
+	TIMESTAMP_SIZE = 16
+	PAYLOAD_SIZE = 48
+
 	REAL_USER_THROUGHPUT = 5
 	DEFAULT_PACKET_GROUP_SIZE = 10
 )
@@ -28,6 +32,9 @@ var (
 
 	RealSignature []byte
 	FakeSignature []byte
+
+	Method int
+	Seed rand.Source
 )
 
 func check(e error) {
@@ -64,28 +71,60 @@ func readSigInfo(filename string) {
 	FakeSignature[0] = byte('A')
 	FakeSignature[10] = byte('A')
 
-	fmt.Printf("Real: %x\n", RealSignature)
-	fmt.Printf("Fake: %x\n", FakeSignature)
-
   /* Get N for RSA and create big.Int from string. */
   /* Don't need values for RSA PublicKey. */
   scanner.Scan()
   scanner.Scan()
 }
 
+func setupMethod(method string) {
+	Method, in_list := METHODS[method]
+	if !in_list {
+		Method = 0
+	}
+
+	switch Method {
+	/* Normal. */
+	case 0:
+		break
+	/* Binning. */
+	case 1:
+		Seed = rand.NewSource(time.Now().UnixNano())
+	/* Computational Puzzle. */
+	case 2:
+		break
+	default:
+		break
+	}
+
+}
+
+func generatePayload(realUser bool) []byte {
+	payload := make([]byte, TIMESTAMP_SIZE + PAYLOAD_SIZE)
+	_ = binary.PutVarint(payload, time.Now().UnixNano())
+	switch Method {
+	/* Paths for binning. */
+	case 1:
+		payload[TIMESTAMP_SIZE:] = GetRandomPath(Seed, realUser)
+	default:
+		break
+	}
+	return payload
+}
+
 func startSigStream(realUser bool, Wg *sync.WaitGroup) {
 	var (
 		rate = REAL_USER_THROUGHPUT
 		iters = PacketGroupSize
-		msg []byte
+		sig []byte
 		err    error
 		udpConnection *snet.Conn
 	)
 
 	if realUser {
-		msg = RealSignature
+		sig = RealSignature
 	} else {
-		msg = FakeSignature
+		sig = FakeSignature
 		rate *= Scale
 		iters *= Scale
 	}
@@ -93,14 +132,13 @@ func startSigStream(realUser bool, Wg *sync.WaitGroup) {
 	udpConnection, err = snet.DialSCION("udp4", Local, Remote)
 	check(err)
 
-	num := make([]byte, 16)
-	_ = binary.PutVarint(num, 1)
-	sendPacketBuffer := append(num, msg...)
+
+	var sendPacketBuffer []byte
 	nap := time.Second / time.Duration(rate)
 	i := 0
 	for i < iters {
-		_ = binary.PutVarint(sendPacketBuffer, time.Now().UnixNano())
-		_, err = udpConnection.Write(sendPacketBuffer)
+		sendPacketBuffer = generatePayload(realUser)
+		_, err = udpConnection.Write(append(sendPacketBuffer, sig...))
 		check(err)
 
 		/* Wait for correct time interval.*/
@@ -127,10 +165,12 @@ func main() {
 	flag.IntVar(&Scale, "c", 5, "Constant Scale Of Attacker To Regular Throughput")
 	flag.IntVar(&PacketGroupSize, "n", DEFAULT_PACKET_GROUP_SIZE, "Number Of Real User Packets To Send. Attacker Will Be Scaled")
 	flag.StringVar(&filename, "f", "sig_info.txt", "CryptoFileName")
+	m := flag.String("m", "normal", "SigFloodMethod")
 	flag.Parse()
 
 	/* Get Crypto Info */
 	readSigInfo(filename)
+	setupMethod(*m)
 
 	/* Create the SCION UDP socket */
 	if len(sourceAddress) > 0 {

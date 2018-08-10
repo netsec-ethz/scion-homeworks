@@ -18,9 +18,19 @@ import (
 	"github.com/scionproto/scion/go/lib/sciond"
 )
 
+const (
+	SIG_START = 64
+)
+
 var (
 	Hash []byte
 	PubKey rsa.PublicKey
+
+	Method int
+
+	TotalRecvd = 0
+	AmountDelayed = 0
+
 )
 
 func check(e error) {
@@ -74,6 +84,26 @@ func readSigInfo(filename string) {
 	PubKey = rsa.PublicKey{N: N, E: int(E)}
 }
 
+func setupMethod(method string) {
+	Method, in_list := METHODS[method]
+	if !in_list {
+		Method = 0
+	}
+
+	switch Method {
+		/* Normal. */
+		case 0:
+			break
+		/* Binning. */
+		case 1:
+			break
+		case 2:
+			break
+		default:
+			break
+	}
+}
+
 func verifySig(sig []byte) bool {
 	if err := rsa.VerifyPKCS1v15(&PubKey, crypto.SHA256, Hash, sig); err != nil {
 		// fmt.Println("Fake")
@@ -91,19 +121,18 @@ func main() {
 		server *snet.Addr
 		udpConnection *snet.Conn
 
-		totalRecvd = 0
-		amountDelayed = 0
-
 		filename string
 	)
 
 	/* Fetch arguments from command line */
 	flag.StringVar(&serverAddress, "s", "", "Server SCION Address")
 	flag.StringVar(&filename, "f", "sig_info.txt", "CryptoFileName")
+	m := flag.String("m", "normal", "SigFloodMethod")
 	flag.Parse()
 
 	/* Get Crypto Info */
 	readSigInfo(filename)
+	setupMethod(*m)
 
 	/* Create the SCION UDP socket */
 	if len(serverAddress) > 0 {
@@ -125,20 +154,23 @@ func main() {
 	for {
 		n, _, err := udpConnection.ReadFrom(receivePacketBuffer)
 		check(err)
-		timestamp, _ := binary.Varint(receivePacketBuffer)
-		if timestamp == 0 {
-			break
-		}
-		if verifySig(receivePacketBuffer[16:n]) {
-			diff_seconds := (time.Now().UnixNano() - timestamp) / 1e9
-			totalRecvd += 1
-			if diff_seconds > 10 {
-				amountDelayed += 1
-				fmt.Println("delayed")
-			}
-		}
+		handleRequest(receivePacketBuffer, n)
 	}
 
-	fmt.Printf("Total received: %d\t Amount delayed: %d\n", totalRecvd, amountDelayed)
+	fmt.Printf("Total received: %d\t Amount delayed: %d\n", TotalRecvd, AmountDelayed)
 }
 
+func handleRequest(req []byte, n int) {
+	timestamp, _ := binary.Varint(req)
+	if timestamp == 0 {
+		break
+	}
+	if verifySig(req[SIG_START:n]) {
+		diff_seconds := (time.Now().UnixNano() - timestamp) / 1e9
+		TotalRecvd += 1
+		if diff_seconds > 10 {
+			AmountDelayed += 1
+			fmt.Println("delayed")
+		}
+	}
+}
