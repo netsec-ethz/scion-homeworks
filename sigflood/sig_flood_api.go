@@ -14,8 +14,8 @@ const (
 var METHODS = map[string]int{"normal":0, "binning":1, "puzzle":2}
 
 /* Paths ordered from destination->source. ASes separated by commas. */
-var REAL_PATHS = []string{"A,B,C,D", "F,G,D", "F,I,D", "E,F,G,D", "H,F,G,D", "E,F,I,D", "H,F,I,D", "J,K,L,D"}
-var FAKE_PATHS = []string{"E,F,G,D", "H,F,G,D", "E,F,I,D", "H,F,I,D", "M,F,G,D", "N,F,G,D", "O,F,G,D", "M,F,I,D", "N,F,I,D", "O,F,I,D"}
+var REAL_PATHS = []string{"D,C,B,A", "D,G,F", "D,I,F", "D,G,F,E", "D,G,F,H", "D,I,F,E", "D,I,F,H", "D,L,K,J"}
+var FAKE_PATHS = []string{"D,G,F,E", "D,G,F,H", "D,I,F,E", "D,I,F,H", "D,G,F,M", "D,G,F,N", "D,G,F,O", "D,I,F,M", "D,I,F,N", "D,I,F,O"}
 
 type kv struct {
 	K   string
@@ -26,7 +26,8 @@ func FindAttacker(paths []string, num_attackers int) []kv {
 	/* Create dictionary of AS : #AppearancesInPaths */
 	all_nodes := make(map[string]int)
 	for _, path := range paths {
-		for _, node := range strings.Split(path, ",") {
+		/* Destination is the service itself so do not include. */
+		for _, node := range strings.Split(path, ",")[1:] {
 			_, in := all_nodes[node]
 		if !in {
 			all_nodes[node] = 0
