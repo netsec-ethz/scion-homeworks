@@ -17,9 +17,6 @@ import (
 )
 
 const (
-	TIMESTAMP_SIZE = 16
-	PAYLOAD_SIZE = 48
-
 	REAL_USER_THROUGHPUT = 5
 	DEFAULT_PACKET_GROUP_SIZE = 10
 )
@@ -81,6 +78,7 @@ func setupMethod(method string) {
 	Method, in_list := METHODS[method]
 	if !in_list {
 		Method = 0
+		method = "normal"
 	}
 
 	switch Method {
@@ -97,19 +95,22 @@ func setupMethod(method string) {
 		break
 	}
 
+	fmt.Printf("\nRunning the %s DOS flood method.\n\n", method)
 }
 
 func generatePayload(realUser bool) []byte {
-	payload := make([]byte, TIMESTAMP_SIZE + PAYLOAD_SIZE)
-	_ = binary.PutVarint(payload, time.Now().UnixNano())
+	timestamp := make([]byte, TIMESTAMP_SIZE)
+	_ = binary.PutVarint(timestamp, time.Now().UnixNano())
+	payload := make([]byte, PAYLOAD_SIZE)
 	switch Method {
 	/* Paths for binning. */
 	case 1:
-		payload[TIMESTAMP_SIZE:] = GetRandomPath(Seed, realUser)
+		path := []byte(GetRandomPath(Seed, realUser))
+		payload = append(path, make([]byte, PAYLOAD_SIZE - len(path))...)
 	default:
 		break
 	}
-	return payload
+	return append(timestamp, payload...)
 }
 
 func startSigStream(realUser bool, Wg *sync.WaitGroup) {

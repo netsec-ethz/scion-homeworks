@@ -3,6 +3,12 @@ package main
 import (
 	"math/rand"
 	"sort"
+	"strings"
+)
+
+const (
+	TIMESTAMP_SIZE = 16
+	PAYLOAD_SIZE = 48
 )
 
 var METHODS = map[string]int{"normal":0, "binning":1, "puzzle":2}
@@ -16,11 +22,11 @@ type kv struct {
 	V int
 }
 
-func FindAttacker(paths [][]string, num_attackers int) []kv {
+func FindAttacker(paths []string, num_attackers int) []kv {
 	/* Create dictionary of AS : #AppearancesInPaths */
 	all_nodes := make(map[string]int)
 	for _, path := range paths {
-		for _, node := range path {
+		for _, node := range strings.Split(path, ",") {
 			_, in := all_nodes[node]
 		if !in {
 			all_nodes[node] = 0

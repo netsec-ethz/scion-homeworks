@@ -18,20 +18,26 @@ import (
 	"github.com/scionproto/scion/go/lib/sciond"
 )
 
-const (
-	SIG_START = 64
-)
-
 var (
 	Hash []byte
 	PubKey rsa.PublicKey
 
 	Method int
+	RequestHandler defense
+
 
 	TotalRecvd = 0
 	AmountDelayed = 0
 
+	/* Binning Vars */
+	ReceivedThreshold = 100
+	PercentageThreshold = 0.0
+	MaxPaths = 50
+	PathPos = 0
+	SavedPaths = make([]string, MaxPaths)
 )
+
+type defense func([]byte, int) bool
 
 func check(e error) {
 	if e != nil {
@@ -84,12 +90,72 @@ func readSigInfo(filename string) {
 	PubKey = rsa.PublicKey{N: N, E: int(E)}
 }
 
+func defaultRequestHandler(req []byte, n int) bool {
+	timestamp, _ := binary.Varint(req)
+	if timestamp == 0 {
+		return true;
+	}
+	if verifySig(req[TIMESTAMP_SIZE+PAYLOAD_SIZE:n]) {
+		diff_seconds := (time.Now().UnixNano() - timestamp) / 1e9
+		TotalRecvd += 1
+		if diff_seconds > 10 {
+			AmountDelayed += 1
+			fmt.Println("delayed")
+		}
+	}
+	return false
+}
+
+func BinningRequestHandler(req []byte, n int) bool {
+	timestamp, _ := binary.Varint(req)
+	if timestamp == 0 {
+		return true;
+	}
+
+	path := string(req[TIMESTAMP_SIZE:TIMESTAMP_SIZE+PAYLOAD_SIZE])
+	/* Can optionally choose to serve based on bin, if desired. */
+	SavedPaths[PathPos] = path
+	PathPos += 1
+	if PathPos >= MaxPaths {
+		PathPos = 0
+	}
+
+	correct := verifySig(req[TIMESTAMP_SIZE+PAYLOAD_SIZE:n])
+	if correct {
+		diff_seconds := (time.Now().UnixNano() - timestamp) / 1e9
+		TotalRecvd += 1
+		if diff_seconds > 10 {
+			AmountDelayed += 1
+			fmt.Println("delayed")
+		}
+	}
+
+	/* Use running average to determine if we are in DOS and want to find attacker. */
+	var i = -1
+	if !correct {
+		i = 1
+	}
+
+	PercentageThreshold = PercentageThreshold*0.8 + float64(i)*0.2
+
+	if PercentageThreshold > 0 && TotalRecvd > ReceivedThreshold {
+		/* */
+		attacker := FindAttacker(SavedPaths, 1)[0].K
+		/* Can choose to adjust binning measures to limit the attacker. */
+		fmt.Println("The attacker is from AS:", attacker)
+	}
+
+	return false
+}
+
 func setupMethod(method string) {
 	Method, in_list := METHODS[method]
 	if !in_list {
 		Method = 0
+		method = "normal"
 	}
 
+	RequestHandler = defaultRequestHandler
 	switch Method {
 		/* Normal. */
 		case 0:
@@ -102,6 +168,8 @@ func setupMethod(method string) {
 		default:
 			break
 	}
+
+	fmt.Printf("\nRunning the %s DOS server method.\n\n", method)
 }
 
 func verifySig(sig []byte) bool {
@@ -154,23 +222,12 @@ func main() {
 	for {
 		n, _, err := udpConnection.ReadFrom(receivePacketBuffer)
 		check(err)
-		handleRequest(receivePacketBuffer, n)
+		done := RequestHandler(receivePacketBuffer, n)
+		if done {
+			break
+		}
 	}
 
 	fmt.Printf("Total received: %d\t Amount delayed: %d\n", TotalRecvd, AmountDelayed)
 }
 
-func handleRequest(req []byte, n int) {
-	timestamp, _ := binary.Varint(req)
-	if timestamp == 0 {
-		break
-	}
-	if verifySig(req[SIG_START:n]) {
-		diff_seconds := (time.Now().UnixNano() - timestamp) / 1e9
-		TotalRecvd += 1
-		if diff_seconds > 10 {
-			AmountDelayed += 1
-			fmt.Println("delayed")
-		}
-	}
-}
