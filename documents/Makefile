@@ -1,6 +1,5 @@
 .PHONY: all clean
 UNOCONV := $(shell command -v unoconv &> /dev/null)
-DOCS = Questionnaire.pdf LatencyHomework.pdf 
 SRC_FILES := $(wildcard *.odt)
 PDF_FILES := $(patsubst %.odt,%.pdf,$(SRC_FILES))
 
